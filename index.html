@@ -7,6 +7,7 @@
 <style>
 :root{color-scheme:light;--bg:#fff;--card:#fff;--ink:#000;--mute:#333;--line:#cfd6d2;--acc:#1b7a3d;--accink:#fff}
 h1,h2,th{color:var(--acc)}
+.by{margin:0 0 10px;font-size:.8rem;color:var(--acc);text-align:left}
 summary{font-size:1rem;font-weight:700;color:var(--acc);cursor:pointer}
 summary .hint{font-weight:400;color:var(--mute);font-size:.85rem}
 details[open] summary{margin-bottom:12px}
@@ -37,6 +38,7 @@ th,td{border-bottom:1px solid var(--line);padding:4px 8px;text-align:left;white-
 <body>
 <main>
 <h1>CONVERSOR PEDIDOS FLETES</h1>
+<p class="by">Logistica Sanse by Vera</p>
 <h1>Albaranes CC / CC2</h1>
 <p class="sub">Sube el Excel original y descarga el PDF listo para imprimir. El archivo se procesa en tu navegador y no se envía a ningún sitio.</p>
 
@@ -84,6 +86,10 @@ th,td{border-bottom:1px solid var(--line);padding:4px 8px;text-align:left;white-
 // Columnas marcadas por defecto (cambia esta lista si quieres otro valor inicial)
 const DEFAULT_COLS=["ALMACEN","FLETE","FECHA","CIRCUITO","PEDIDO","FLUJO","SECCION","REF_LM","DESIG","EAN","CANTIDAD","PYXIS","CONTE_AGRUP","TRANSPORTE"];
 const DEFAULT_FLOWS=["CC","CC2"];
+// Número de almacén -> plataforma (se marca sola al subir el Excel).
+// Para añadir Getafe: "NÚMERO":"GETAFE"
+const PLATAFORMAS={"431":"TORIJA","439":"VALENCIA","448":"MECO"};
+let avisos=[];
 const LOC="UBICACIÓN";
 // Columnas que se imprimen centradas y en negrita en el PDF
 const STRONG=["FLETE","CANTIDAD","PYXIS"];
@@ -116,7 +122,7 @@ function load(f){
       headers=data[0].map(h=>String(h).trim());
       if(!headers.some(h=>norm(h)==="FLUJO"))throw new Error("No encuentro la columna FLUJO. ¿Es el archivo correcto?");
       rows=data.slice(1).filter(r=>r.some(c=>c!==""));
-      setup();say(rows.length+" líneas leídas de «"+f.name+"».");
+      setup();
     }catch(err){say(err.message,true)}
   };
   r.readAsArrayBuffer(f);
@@ -131,6 +137,14 @@ function setup(){
   $("plat").classList.remove("hide");$("opts").classList.remove("hide");$("out").classList.remove("hide");
   const g=n=>{const k=headers.findIndex(h=>norm(h)===n);return k<0?"":fmt(rows[0][k])};
   meta={albaran:g("ALMACEN")+"-"+g("FLETE"),tienda:g("TIENDA"),fecha:g("FECHA")};
+  avisos=[];
+  const falta=DEFAULT_COLS.filter(c=>!headers.some(h=>norm(h)===c));
+  if(falta.length)avisos.push("Faltan columnas habituales: "+falta.join(", ")+".");
+  const fk=headers.findIndex(h=>norm(h)==="FLETE");
+  if(fk>=0&&new Set(rows.map(r=>r[fk])).size>1)avisos.push("El archivo contiene más de un albarán.");
+  const alm=g("ALMACEN"),pl=PLATAFORMAS[alm];
+  document.querySelectorAll("input[name=p]").forEach(i=>i.checked=(i.value===pl));
+  if(!pl)avisos.push("No reconozco el almacén «"+alm+"»: elige la plataforma a mano.");
   render();
 }
 
@@ -148,7 +162,10 @@ function render(){
   const {head,body}=result();
   $("prev").innerHTML="<tr>"+head.map(h=>`<th>${h}</th>`).join("")+"</tr>"+
     body.slice(0,50).map(r=>"<tr>"+r.map(c=>`<td>${c}</td>`).join("")+"</tr>").join("");
-  say(body.length+" líneas en el resultado"+(body.length>50?" (vista previa de las 50 primeras)":"")+".");
+  const w=[...avisos];
+  if(!body.length)w.unshift("No hay líneas con los flujos elegidos. ¿Es el Excel correcto?");
+  const base=body.length+" líneas en el resultado"+(body.length>50?" (vista previa de las 50 primeras)":"")+".";
+  say(w.length?base+" ⚠ "+w.join(" "):base,w.length>0);
 }
 
 $("pdf").onclick=()=>{
@@ -183,8 +200,14 @@ $("pdf").onclick=()=>{
   doc.autoTable({head:[head],body,startY:16,margin:{left:10,right:10,bottom:12},
     styles:{fontSize:fs,cellPadding:pad,lineColor:[150,150,150],lineWidth:.15,textColor:[0,0,0],fillColor:[255,255,255],valign:"middle"},
     headStyles:{fillColor:[255,255,255],textColor:[27,122,61],fontStyle:"bold"},
-    columnStyles:styles,theme:"grid",
-    didDrawPage:d=>{doc.setFontSize(8);doc.text("Página "+doc.getNumberOfPages(),287,205,{align:"right"})}});
+    columnStyles:styles,theme:"grid"});
+  let y=doc.lastAutoTable.finalY+6;
+  if(y>198){doc.addPage();y=14}
+  doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(0,0,0);
+  doc.text("Total líneas: "+body.length,10,y);
+  const n=doc.getNumberOfPages();
+  doc.setFont("helvetica","normal");doc.setFontSize(8);
+  for(let i=1;i<=n;i++){doc.setPage(i);doc.text("Página "+i+" de "+n,287,205,{align:"right"})}
   doc.save(fileName+"_CC.pdf");
 };
 
